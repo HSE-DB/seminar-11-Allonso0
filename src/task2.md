@@ -1,45 +1,65 @@
-## Задание 2
+# Задание 2
 
 1. Удалите старую базу данных, если есть:
+
     ```shell
     docker compose down
     ```
 
 2. Поднимите базу данных из src/docker-compose.yml:
+
     ```shell
     docker compose down && docker compose up -d
     ```
 
 3. Обновите статистику:
+
     ```sql
     ANALYZE t_books;
     ```
 
 4. Создайте полнотекстовый индекс:
+
     ```sql
     CREATE INDEX t_books_fts_idx ON t_books 
     USING GIN (to_tsvector('english', title));
     ```
 
 5. Найдите книги, содержащие слово 'expert':
+
     ```sql
     EXPLAIN ANALYZE
     SELECT * FROM t_books 
     WHERE to_tsvector('english', title) @@ to_tsquery('english', 'expert');
     ```
-    
+
     *План выполнения:*
-    [Вставьте план выполнения]
-    
+
+     ``` markdown
+     Bitmap Heap Scan on t_books  (cost=21.03..1336.08 rows=750 width=33) (actual time=0.018..0.019 rows=1 loops=1)
+     "  Recheck Cond: (to_tsvector('english'::regconfig, (title)::text) @@ '''expert'''::tsquery)"
+     Heap Blocks: exact=1
+     ->  Bitmap Index Scan on t_books_fts_idx  (cost=0.00..20.84 rows=750 width=0) (actual time=0.010..0.011 rows=1 loops=1)
+     "        Index Cond: (to_tsvector('english'::regconfig, (title)::text) @@ '''expert'''::tsquery)"
+     Planning Time: 0.771 ms
+     Execution Time: 0.074 ms
+     ```
+
     *Объясните результат:*
-    [Ваше объяснение]
+
+     ``` markdown
+     Используется Bitmap Heap Scan с GIN индексом. Индекс быстро находит одну строку, время выполнения 0.074 мс. 
+     GIN индекс подходит для поиска слов в тексте.
+     ```
 
 6. Удалите индекс:
+
     ```sql
     DROP INDEX t_books_fts_idx;
     ```
 
 7. Создайте таблицу lookup:
+
     ```sql
     CREATE TABLE t_lookup (
          item_key VARCHAR(10) NOT NULL,
@@ -48,12 +68,14 @@
     ```
 
 8. Добавьте первичный ключ:
+
     ```sql
     ALTER TABLE t_lookup 
     ADD CONSTRAINT t_lookup_pk PRIMARY KEY (item_key);
     ```
 
 9. Заполните данными:
+
     ```sql
     INSERT INTO t_lookup 
     SELECT 
@@ -62,6 +84,7 @@
     ```
 
 10. Создайте кластеризованную таблицу:
+
      ```sql
      CREATE TABLE t_lookup_clustered (
           item_key VARCHAR(10) PRIMARY KEY,
@@ -70,6 +93,7 @@
      ```
 
 11. Заполните её теми же данными:
+
      ```sql
      INSERT INTO t_lookup_clustered 
      SELECT * FROM t_lookup;
@@ -78,71 +102,120 @@
      ```
 
 12. Обновите статистику:
+
      ```sql
      ANALYZE t_lookup;
      ANALYZE t_lookup_clustered;
      ```
 
 13. Выполните поиск по ключу в обычной таблице:
+
      ```sql
      EXPLAIN ANALYZE
      SELECT * FROM t_lookup WHERE item_key = '0000000455';
      ```
-     
+
      *План выполнения:*
-     [Вставьте план выполнения]
-     
+
+     ``` markdown
+     Index Scan using t_lookup_pk on t_lookup  (cost=0.42..8.44 rows=1 width=23) (actual time=0.026..0.026 rows=1 loops=1)
+     Index Cond: ((item_key)::text = '0000000455'::text)
+     Planning Time: 0.292 ms
+     Execution Time: 0.046 ms
+     ```
+
      *Объясните результат:*
-     [Ваше объяснение]
+
+     ``` markdown
+     Index Scan с использованием первичного ключа. Быстро находит одну строку за 0.046 мс
+     ```
 
 14. Выполните поиск по ключу в кластеризованной таблице:
+
      ```sql
      EXPLAIN ANALYZE
      SELECT * FROM t_lookup_clustered WHERE item_key = '0000000455';
      ```
-     
+
      *План выполнения:*
-     [Вставьте план выполнения]
-     
+
+     ``` markdown
+     Index Scan using t_lookup_clustered_pkey on t_lookup_clustered  (cost=0.42..8.44 rows=1 width=23) (actual time=0.032..0.033 rows=1 loops=1)
+     Index Cond: ((item_key)::text = '0000000455'::text)
+     Planning Time: 0.393 ms
+     Execution Time: 0.053 ms
+     ```
+
      *Объясните результат:*
-     [Ваше объяснение]
+
+     ``` markdown
+     Аналогично, Index Scan по кластеризованному PK. Время немного больше (0.053 мс), но незначительно. 
+     Кластеризация не даёт преимущества для точечного поиска по PK
+     ```
 
 15. Создайте индекс по значению для обычной таблицы:
+
      ```sql
      CREATE INDEX t_lookup_value_idx ON t_lookup(item_value);
      ```
 
 16. Создайте индекс по значению для кластеризованной таблицы:
+
      ```sql
      CREATE INDEX t_lookup_clustered_value_idx 
      ON t_lookup_clustered(item_value);
      ```
 
 17. Выполните поиск по значению в обычной таблице:
+
      ```sql
      EXPLAIN ANALYZE
      SELECT * FROM t_lookup WHERE item_value = 'T_BOOKS';
      ```
-     
+
      *План выполнения:*
-     [Вставьте план выполнения]
-     
+
+     ``` markdown
+     Index Scan using t_lookup_value_idx on t_lookup  (cost=0.42..8.44 rows=1 width=23) (actual time=0.033..0.033 rows=0 loops=1)
+     Index Cond: ((item_value)::text = 'T_BOOKS'::text)
+     Planning Time: 0.321 ms
+     Execution Time: 0.058 ms
+     ```
+
      *Объясните результат:*
-     [Ваше объяснение]
+
+     ``` markdown
+     Index Scan по индексу на item_value. Строк не найдено (rows=0), время 0.058 мс.
+     ```
 
 18. Выполните поиск по значению в кластеризованной таблице:
+
      ```sql
      EXPLAIN ANALYZE
      SELECT * FROM t_lookup_clustered WHERE item_value = 'T_BOOKS';
      ```
-     
+
      *План выполнения:*
-     [Вставьте план выполнения]
-     
+
+     ``` markdown
+     Index Scan using t_lookup_clustered_value_idx on t_lookup_clustered  (cost=0.42..8.44 rows=1 width=23) (actual time=0.030..0.030 rows=0 loops=1)
+     Index Cond: ((item_value)::text = 'T_BOOKS'::text)
+     Planning Time: 0.320 ms
+     Execution Time: 0.050 ms
+     ```
+
      *Объясните результат:*
-     [Ваше объяснение]
+
+     ``` markdown
+     Аналогично, Index Scan по индексу на item_value. Время 0.050 мс
+     ```
 
 19. Сравните производительность поиска по значению в обычной и кластеризованной таблицах:
-     
+
      *Сравнение:*
-     [Ваше сравнение]
+
+     ``` markdown
+     Оба запроса выполняются почти одинаково быстро. 
+     Кластеризация таблицы по PK не влияет на поиск по неключевому полю, так как для этого используется отдельный B-tree индекс. 
+     Разница во времени несущественна
+     ```
